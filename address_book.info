@@ -1,0 +1,7 @@
+name = Address book
+
+description = This module will make your life easier and more comfortable! Add to your site complete address book like you have, for example, in phone.
+
+package = Address
+
+core = 7.x

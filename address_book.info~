@@ -1,0 +1,7 @@
+name = Address book
+
+description = For those who do
+
+package = Address
+
+core = 7.x

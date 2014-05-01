@@ -1,0 +1,147 @@
+<?php
+
+ /**
+  *
+  * Install vocabulary
+  *
+  */
+
+ function address_book_install() {
+    taxonomy_vocabulary_save((object) array(
+        'name' => t('Category'),
+        'machine_name' => 'category',
+        'description' => t('Vocabulary for module Address book'),
+        'module' => 'address_book',
+    ));
+
+    $voc = taxonomy_vocabulary_machine_name_load('category');
+    $terms = array('business', 'family', 'friends', 'home', 'work');
+
+    foreach($terms as $term) {
+        taxonomy_term_save((object) array (
+            'name' => $term,
+            'vid' => $voc->vid,
+        ));
+    }
+
+    $dir = 'public://address_book/vocabulary';
+    file_prepare_directory($dir, FILE_CREATE_DIRECTORY);
+
+    // new image style
+
+    $style = array('name' => 'contact_preview');
+    $style_create = image_style_save($style);
+
+    $style = image_style_load('contact_preview');
+    $isid = $style['isid'];
+    //debug($style);
+
+    $effect=array (
+      'label' => 'Scale',
+      'help' => 'Scaling will maintain the aspect-ratio of the original image. If only a single dimension is specified, the other dimension will be calculated.',
+      'effect callback' => 'image_scale_effect',
+      'form callback' => 'image_scale_form',
+      'summary theme' => 'image_scale_summary',
+      'module' => 'image',
+      'name' => 'image_scale',
+      'data' => array (
+        'width' => '500',
+        'height' => '',
+        'upscale' => 0,
+      ),
+      'ieid' => NULL,
+      'isid' => $isid,
+      'weight' => '1',
+    );
+
+    image_effect_save($effect);
+ }
+
+ /**
+  *
+  * Uninstall vocabulary
+  *
+  */
+
+ function address_book_uninstall() {
+    $voc = taxonomy_vocabulary_machine_name_load('category');
+    if ($voc) {
+        taxonomy_vocabulary_delete($voc->vid);
+    }
+ }
+
+ /**
+  *
+  * Implements schema
+  *
+  */
+
+ function address_book_schema() {
+    $schema['address_book'] = array(
+        'description' => 'mysql database for Address book',
+        'fields' => array(
+            'id' => array(
+                'description' => 'The primary id for single contact',
+                'type' => 'serial',
+                'unsigned' => TRUE,
+                'not null' => TRUE,
+            ),
+            'user_id' => array(
+                'description' => 'for user id',
+                'type' => 'int',
+                'not null' => TRUE,
+            ),
+            'fid' => array(
+                'description' => 'for fid',
+                'type' => 'int',
+                'length' => 255,
+                'not null' => TRUE,
+            ),
+            'first_name' => array(
+                'description' => 'for first name',
+                'type' => 'varchar',
+                'length' => 255,
+                'not null' => TRUE,
+            ),
+            'last_name' => array(
+                'description' => 'for last name',
+                'type' => 'varchar',
+                'length' => 255,
+                'not null' => TRUE,
+            ),
+            'category_id' => array(
+                'description' => 'for category id',
+                'type' => 'int',
+                'not null' => TRUE,
+            ),
+            'email' => array(
+                'description' => 'for email',
+                'type' => 'varchar',
+                'length' => 255,
+                'not null' => TRUE,
+            ),
+            'phone' => array(
+                'description' => 'for phone',
+                'type' => 'varchar',
+                'length' => 255,
+                'not null' => TRUE,
+            ),
+            'date' => array(
+                'description' => 'for birthday',
+                'type' => 'int',
+                'not null' => TRUE,
+                'unsigned' => TRUE,
+            ),
+            'notes' => array(
+                'description' => 'for notes',
+                'type' => 'text',
+                'length' => 255,
+                'not null' => FALSE,
+            ),
+        ),
+        'primary key' => array('id'),
+    );
+
+    return $schema;
+ }
+

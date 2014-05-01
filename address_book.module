@@ -1,0 +1,623 @@
+<?php
+
+/**
+ * @file
+ *
+ * Implements hook_menu()
+ *
+ * @return mixed
+ */
+
+function address_book_menu() {
+
+  $items['address-book'] = array(
+    'title' => 'Address book',
+    'description' => t('Main page'),
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('address_book_form_main'),
+    'access callback' => TRUE,
+  );
+
+  $items['address-book/list'] = array(
+    'title' => 'List',
+    'type' => MENU_DEFAULT_LOCAL_TASK,
+    'weight' => 0,
+  );
+
+  $items['address-book/add'] = array(
+    'title' => 'Add',
+    'description' => t('Add'),
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('address_book_form_add_edit'),
+    'access callback' => TRUE,
+    'type' => MENU_LOCAL_TASK,
+    'weight' => 1,
+  );
+
+  $items['address-book/%'] = array(
+    'description' => t('View'),
+    'page callback' => 'address_book_page_view',
+    'page arguments' => array(1),
+    'access callback' => 'address_book_access_content',
+    'access arguments' => array(1),
+  );
+
+  $items['address-book/edit/%'] = array(
+    'description' => t('Edit'),
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('address_book_form_add_edit', 2),
+    'access callback' => 'address_book_access_content',
+    'access arguments' => array(2),
+  );
+
+  $items['address-book/delete/%'] = array(
+    'description' => t('Delete contact'),
+    'page callback' => 'address_book_delete_contact',
+    'page arguments' => array(2),
+    'access callback' => 'address_book_access_content',
+    'access arguments' => array(2),
+  );
+
+  return $items;
+}
+
+/**
+ *
+ * Implements hook_form()
+ *
+ * @param $form
+ * @param $form_state
+ * @return mixed
+ */
+
+function address_book_form_main($form, &$form_state) {
+
+  // окошко подтверждения на удаление
+  if (!empty($form_state['delete_items'])) {
+    $form['confirm-delete'] = array(
+      '#theme' => 'item_list',
+      '#title' => t('Confirm to delete the following contacts'),
+      '#items' => $form_state['delete_items'],
+    );
+    $form['confirm'] = array(
+      '#type' => 'submit',
+      '#value' => t('Confirm'),
+      '#submit' => array('address_book_bulk_delete_submit'),
+    );
+    drupal_set_breadcrumb(array(l(t('Home'), '<front>'), l(t('Address book'), 'address-book'), 'Delete'));
+    return $form;
+  }
+
+  global $user;
+
+  // ссылка на create new contact
+  $form['add-link'] = array(
+    '#type' => 'link',
+    '#href' => 'address-book/add',
+    '#title' => t('Create new contact'),
+  );
+
+  // словарь
+  $voc = taxonomy_vocabulary_machine_name_load('category');
+  $categories_terms = address_book_selectbox_content($voc->vid);
+  $form['select-category'] = array(
+    '#type' => 'select',
+    '#options' => $categories_terms,
+  );
+
+  // фильтр
+  $form['filter-category'] = array(
+    '#type' => 'submit',
+    '#value' => t('Apply'),
+    '#submit' => array('address_book_filter_category_submit',),
+  );
+
+  // сброс фильтра
+  if (isset($form_state['values']['select-category'])) {
+    $form['reset-category'] = array(
+      '#type' => 'submit',
+      '#value' => t('Reset'),
+      '#submit' => array('address_book_reset_category_submit',),
+    );
+    $query = array(
+      'user_id' => $user->uid,
+      'category_id' => $form_state['values']['select-category'],
+    );
+  }
+  else {
+    drupal_set_breadcrumb(array(l(t('Home'), '<front>'), 'Address book'));
+    $query = array(
+      'user_id' => $user->uid,
+    );
+  }
+
+  $gets = address_book_get_load($query);
+
+  // таблица---------------------------------------------------------------------------
+  $header = array(
+    'photo' => t('Photo'),
+    'full_name' => t('Full Name'),
+    'category' => t('Category'),
+    'email' => t('Email'),
+    'phone' => t('Phone'),
+    'date' => t('Birthday'),
+    'actions' => t('Actions')
+  );
+
+  $rows = array();
+  $options = array();
+
+  foreach ($gets as $get) {
+    $rows[] = array_map('check_plain', (array) $get);
+  }
+
+  foreach ($rows as $row) {
+
+    // картинка
+    $file_load = file_load($row['fid']);
+    $file = array(
+      '#theme' => 'image_style',
+      '#style_name' => 'thumbnail',
+      '#path' => $file_load->uri,
+    );
+
+    // остальные столбцы таблицы
+    $options[$row['id']] = array(
+      'photo' => array(
+        'data' => $file,
+      ),
+      'full_name' => array(
+        'data' => array(
+          '#type' => 'link',
+          '#title' => $row['first_name'] . ' ' . $row['last_name'],
+          '#href' => 'address-book/' . $row['id'],
+        ),
+      ),
+      'category' => $categories_terms[$row['category_id']],
+      'email' => $row['email'],
+      'phone' => $row['phone'],
+      'date' => date('d-m-Y', $row['date']),
+      'actions' => array(
+        'data' => array(
+          array(
+            '#type' => 'link',
+            '#title' => 'edit',
+            '#href' => 'address-book/edit/' . $row['id'],
+          ),
+          array(
+            '#markup' => ' | ',
+          ),
+          array(
+            '#type' => 'link',
+            '#title' => 'delete',
+            '#href' => 'address-book/delete/' . $row['id'],
+            '#attributes' => array(
+              'onclick' => 'javascript:return confirm("' . t('Confirm you want to delete contact') . '");',
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  // склеиваем таблицу
+  $form['tableselect'] = array(
+    '#type' => 'tableselect',
+    '#header' => $header,
+    '#options' => $options,
+    '#empty' => t('There are no data'),
+  );
+
+  // контейнер для массового удаления
+  $form['wrapper'] = array(
+    '#type' => 'container',
+    '#attributes' => array(
+      'class' => array('delete'),
+    ),
+  );
+
+  // кнопка массового удаления
+  $form['wrapper']['delete-selected'] = array(
+    '#type' => 'submit',
+    '#value' => t('Delete selected'),
+  );
+
+  return $form;
+}
+
+/**
+ * Implements hook_form_submit()
+ *
+ * Submit page
+ *
+ * @param $form
+ * @param $form_state
+ */
+
+function address_book_form_main_submit($form, &$form_state) {
+  $form_state['delete_items'] = array_filter($form_state['values']['tableselect']);
+  $form_state['delete_items'] = array_intersect_key($form['tableselect']['#options'], $form_state['delete_items']);
+  $form_state['delete_items'] = array_map(function ($val) {
+      return $val['full_name']['data']['#title'];
+    },
+    $form_state['delete_items']
+  );
+  if (count($form_state['delete_items'])) {
+    $form_state['rebuild'] = TRUE;
+  }
+  else {
+    drupal_set_message(t('Select items first!'), 'error');
+  }
+}
+
+/**
+ * Implements hook_form()
+ *
+ * Add and edit page
+ *
+ * @param $form
+ * @param $form_state
+ * @param null $id
+ * @return mixed
+ */
+
+// функция добавления (редактирования) контакта
+function address_book_form_add_edit($form, &$form_state, $id = NULL) {
+
+  $voc = taxonomy_vocabulary_machine_name_load('category');
+  $get = NULL;
+  if (isset($id)) {
+    $get = address_book_get_load(array('id' => $id));
+    $get = reset($get);
+  }
+
+  $form['file'] = array(
+    '#type' => 'managed_file',
+    '#title' => t('Photo'),
+    '#upload_location' => 'public://address_book/photo',
+
+    // валидность
+    '#upload_validators' => array(
+      'file_validate_is_image' => array(),
+      'file_validate_extensions' => array('jpg png jpeg'),
+      'file_validate_size' => array('400000'),
+    ),
+    '#default_value' => isset($get) ? $get->fid : '',
+  );
+
+  $form['first_name'] = array(
+    '#type' => 'textfield',
+    '#title' => t('First name'),
+    '#default_value' => isset($get) ? $get->first_name : '',
+  );
+
+  $form['last_name'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Last name'),
+    '#default_value' => isset($get) ? $get->last_name : '',
+  );
+
+  $form['email'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Email'),
+    '#default_value' => isset($get) ? $get->email : '',
+  );
+
+  $form['phone'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Phone'),
+    '#default_value' => isset($get) ? $get->phone : '',
+  );
+
+  $form['date'] = array(
+    '#type' => 'date',
+    '#title' => t('Birthday'),
+    '#date_format' => 'd M Y',
+    '#default_value' => (empty($get->id)) ? date('d M Y') : date($get->date),
+    '#date_year_range' => '-85:0',
+  );
+
+  $form['category_id'] = array(
+    '#type' => 'select',
+    '#title' => t('Category'),
+    '#description' => t('Choose category'),
+    '#options' => address_book_selectbox_content($voc->vid),
+    '#default_value' => isset($get) ? $get->category_id : '',
+  );
+
+  $form['notes'] = array(
+    '#type' => 'textarea',
+    '#title' => t('Notes'),
+    '#default_value' => isset($get) ? $get->notes : '',
+  );
+
+  if (isset($get)) {
+    $form['update'] = array(
+      '#type' => 'submit',
+      '#value' => t('Update'),
+    );
+  }
+  else {
+    $form['create'] = array(
+      '#type' => 'submit',
+      '#value' => t('Create'),
+    );
+  }
+
+  // крошки
+  drupal_set_breadcrumb(array(l(t('Home'), '<front>'), l(t('Address book'), 'address-book'), '(Add) Edit contact'));
+
+  return $form;
+}
+
+/**
+ * Implements hook_form_submit()
+ *
+ * Add and edit page
+ *
+ * @param $form
+ * @param $form_state
+ */
+
+function address_book_form_add_edit_submit($form, &$form_state) {
+  global $user;
+
+  if ($file = file_load($form_state['values']['file'])) {
+    $file->status = FILE_STATUS_PERMANENT;
+    file_save($file);
+    $fid = $file->fid;
+    file_usage_add($file, 'address_book', 'content', $fid);
+    drupal_set_message(t('Your form has been submitted'));
+  }
+  else {
+    $fid = NULL;
+  }
+
+  // работа с датой
+  $date = strtotime($form_state['values']['date']['year'] . '-' . $form_state['values']['date']['month'] . '-' . $form_state['values']['date']['day']);
+  $id = NULL;
+  if (isset($form_state['id'])) {
+    $id = $form_state['id'];
+  }
+
+  // перезапись контакта (редактирование)
+  $get = array(
+    'id' => $id,
+    'user_id' => $user->uid,
+    'fid' => $fid,
+    'first_name' => $form_state['values']['first_name'],
+    'last_name' => $form_state['values']['last_name'],
+    'category_id' => $form_state['values']['category_id'],
+    'email' => $form_state['values']['email'],
+    'phone' => $form_state['values']['phone'],
+    'date' => $date,
+    'notes' => $form_state['values']['notes'],
+  );
+  if ($id) {
+    drupal_write_record('address_book', $get, array('id'));
+  }
+  else {
+    drupal_write_record('address_book', $get);
+  }
+}
+
+/**
+ * Implements custom function - delete single contact
+ *
+ * @param $id
+ */
+
+function address_book_delete_contact($id) {
+  $get = address_book_get_load(array('id' => $id));
+  $get = reset($get);
+  if ($file = file_load($get->fid)) {
+    file_usage_delete($file, 'address_book', 'content', $get->fid);
+    file_delete($file);
+  }
+  db_delete('address_book')
+    ->condition('id', $id)
+    ->execute();
+  drupal_set_message(t('Contact have been deleted'));
+  drupal_goto('address-book');
+}
+
+/**
+ * Implements custom function - bulk delete
+ *
+ * @param $form
+ * @param $form_state
+ *
+ * массовое удаление
+ */
+
+function address_book_bulk_delete_submit($form, &$form_state) {
+  $keys = array_keys($form_state['delete_items']);
+  $select = db_select('address_book', 'd')
+    ->fields('d', array('fid'))
+    ->condition('id', $keys, 'IN')
+    ->execute()
+    ->fetchAssoc();
+
+  foreach ($select as $fid) {
+    if ($file = file_load($fid)) {
+      file_usage_delete($file, 'address_book', 'content', $fid);
+      file_delete($file);
+    }
+  }
+
+  db_delete('address_book')
+    ->condition('id', $keys, 'IN')
+    ->execute();
+  drupal_set_message(t('The following contacts have been deleted.'));
+}
+
+/**
+ * Implements custom function - view page
+ *
+ * @param $id
+ * @return array
+ */
+
+function address_book_page_view($id) {
+  $output = array();
+  if ($get = address_book_get_load(array('id' => $id))) {
+    $get = reset($get);
+    $file = file_load($get->fid);
+    $output = array(
+      '#theme' => 'page_view',
+      '#full_name' => $get->first_name . ' ' . $get->last_name,
+      '#image' => $file,
+      '#category' => address_book_get_term($get->category_id),
+      '#email' => $get->email,
+      '#phone' => $get->phone,
+      '#date' => $get->date,
+      '#notes' => $get->notes,
+    );
+  }
+  drupal_set_breadcrumb(array(l(t('Home'), '<front>'), l(t('Address book'), 'address-book'), ($output['#full_name'])));
+
+  return $output;
+}
+
+/**
+ * Implements custom function - access
+ *
+ * @param $id
+ * @return bool
+ */
+
+function address_book_access_content($id) {
+  global $user;
+  $get = address_book_get_load(array('id' => $id));
+  return ($get[0]->user_id == $user->uid);
+}
+
+/**
+ * Implements custom function - submit button for category filter
+ *
+ * @param $form
+ * @param $form_state
+ */
+
+function address_book_filter_category_submit($form, &$form_state) {
+  $form_state['rebuild'] = TRUE;
+}
+
+/**
+ * Implements custom function - reset filter
+ *
+ * @param $form
+ * @param $form_state
+ */
+
+function address_book_reset_category_submit($form, &$form_state) {
+  unset($form_state['values']['select-category']);
+  $form_state['rebuild'] = TRUE;
+}
+
+/**
+ * Implements custom function - database load data
+ *
+ * @param array $get
+ * @return mixed
+ */
+
+function address_book_get_load($get = array()) {
+  $select = db_select('address_book', 'a');
+  $select->fields('a', array());
+
+  foreach ($get as $field => $value) {
+    $select->condition($field, $value);
+  }
+
+  return $select->execute()->fetchAll();
+}
+
+/**
+ * Implements custom function - terms load
+ *
+ * @param $vid
+ * @return array
+ *
+ * используется функция $vid
+ */
+
+function address_book_selectbox_content($vid) {
+  $terms = taxonomy_get_tree($vid);
+  $output = array();
+  if (!empty($terms)) {
+    foreach ($terms as $data) {
+      $output[$data->tid] = $data->name;
+    }
+  }
+  return $output;
+}
+
+/**
+ * Implements hook_theme()
+ *
+ * @return mixed
+ */
+
+function address_book_theme() {
+  $items['page_view'] = array(
+    'variables' => array(
+      'full_name' => NULL,
+      'image' => NULL,
+      'category' => NULL,
+      'email' => NULL,
+      'phone' => NULL,
+      'date' => NULL,
+      'notes' => NULL,
+    )
+  );
+
+  return $items;
+}
+
+/**
+ * Implements custom function - get term from database
+ *
+ * @param $tid
+ * @return mixed
+ */
+
+function address_book_get_term($tid) {
+  $term = taxonomy_term_load($tid);
+  return $term->name;
+}
+
+/**
+ * Implements custom function - contact page theme
+ *
+ * @param $variables
+ * @return string
+ */
+
+function theme_page_view($variables) {
+  $output = '';
+
+  if (!empty($variables['full_name'])) {
+    $output .= '<div><h3>' . $variables['full_name'] . '</h3></div>';
+  }
+  if (!empty($variables['image'])) {
+    $var = array('path' => $variables['image']->uri);
+    $output .= theme('image', $var);
+  }
+  if (!empty($variables['category'])) {
+    $output .= '<div>' . 'Category ---------> ' . $variables['category'] . '</div>';
+  }
+  if (!empty($variables['email'])) {
+    $output .= '<div>' . 'Email -------------> ' . $variables['email'] . '</div>';
+  }
+  if (!empty($variables['phone'])) {
+    $output .= '<div>' . 'Phone ------------> ' . $variables['phone'] . '</div>';
+  }
+  if (!empty($variables['date'])) {
+    $output .= '<div>' . 'Birthday ---------> ' . $variables['date'] . '</div>';
+  }
+  if (!empty($variables['notes'])) {
+    $output .= '<div>' . $variables['notes'] . '</div>';
+  }
+  return $output;
+}
