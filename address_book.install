@@ -29,12 +29,11 @@
 
     // new image style
 
-    $style = array('name' => 'contact_preview');
+    $style = array('name' => '2');
     $style_create = image_style_save($style);
 
-    $style = image_style_load('contact_preview');
+    $style = image_style_load('2');
     $isid = $style['isid'];
-    //debug($style);
 
     $effect=array (
       'label' => 'Scale',
@@ -128,9 +127,8 @@
             ),
             'date' => array(
                 'description' => 'for birthday',
-                'type' => 'int',
-                'not null' => TRUE,
-                'unsigned' => TRUE,
+                'mysql_type' => 'date',
+                'type' => NULL,
             ),
             'notes' => array(
                 'description' => 'for notes',

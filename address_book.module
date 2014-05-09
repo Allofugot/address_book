@@ -176,7 +176,7 @@ function address_book_form_main($form, &$form_state) {
       'category' => $categories_terms[$row['category_id']],
       'email' => $row['email'],
       'phone' => $row['phone'],
-      'date' => date('d-m-Y', $row['date']),
+      'date' => $row['date'],//date('d-m-Y', $row['date']),
       'actions' => array(
         'data' => array(
           array(
@@ -206,6 +206,10 @@ function address_book_form_main($form, &$form_state) {
     '#header' => $header,
     '#options' => $options,
     '#empty' => t('There are no data'),
+  );
+
+  $form['pager'] = array(
+    '#markup' => theme('pager')
   );
 
   // контейнер для массового удаления
@@ -310,11 +314,11 @@ function address_book_form_add_edit($form, &$form_state, $id = NULL) {
   );
 
   $form['date'] = array(
-    '#type' => 'date',
+    '#type' => 'date_select',
     '#title' => t('Birthday'),
     '#date_format' => 'd M Y',
     '#default_value' => (empty($get->id)) ? date('d M Y') : date($get->date),
-    '#date_year_range' => '-85:0',
+    '#date_year_range' => '-150:0',
   );
 
   $form['category_id'] = array(
@@ -345,7 +349,22 @@ function address_book_form_add_edit($form, &$form_state, $id = NULL) {
   }
 
   // крошки
-  drupal_set_breadcrumb(array(l(t('Home'), '<front>'), l(t('Address book'), 'address-book'), '(Add) Edit contact'));
+  if (isset($id)) {
+    drupal_set_breadcrumb(array(l(t('Home'), '<front>'), l(t('Address book'), 'address-book'), 'Edit contact'));
+  }
+  else {
+    drupal_set_breadcrumb(array(l(t('Home'), '<front>'), l(t('Address book'), 'address-book'), 'Add contact'));
+  }
+
+  // --------------------------------???
+  // алиасы для редактирования
+  if (isset($id)) {
+    $alias_path = array(
+      'source' => 'address-book/edit/'.$id,
+      'alias' => 'address-book/edit/'.mb_strtolower($get->first_name . '-' . $get->last_name),
+    );
+    path_save($alias_path);
+  }
 
   return $form;
 }
@@ -374,13 +393,15 @@ function address_book_form_add_edit_submit($form, &$form_state) {
   }
 
   // работа с датой
-  $date = strtotime($form_state['values']['date']['year'] . '-' . $form_state['values']['date']['month'] . '-' . $form_state['values']['date']['day']);
+  //$date = strtotime($form_state['values']['date']['year'] . '-' . $form_state['values']['date']['month'] . '-' . $form_state['values']['date']['day']);
   $id = NULL;
   if (isset($form_state['id'])) {
     $id = $form_state['id'];
   }
 
   // перезапись контакта (редактирование)
+  $id = $form_state['build_info']['args'][0];
+
   $get = array(
     'id' => $id,
     'user_id' => $user->uid,
@@ -390,15 +411,23 @@ function address_book_form_add_edit_submit($form, &$form_state) {
     'category_id' => $form_state['values']['category_id'],
     'email' => $form_state['values']['email'],
     'phone' => $form_state['values']['phone'],
-    'date' => $date,
+    'date' => $form_state['values']['date'],
     'notes' => $form_state['values']['notes'],
   );
+
   if ($id) {
+    /*$query = db_insert('address_book')
+      ->fields('t', array('id', 'user_id', 'fid', 'first_name', 'last_name', 'category_id', 'email', 'phone', 'date', 'notes'))
+      ->execute();*/
     drupal_write_record('address_book', $get, array('id'));
   }
   else {
+    /*$query = db_insert('address_book')
+      ->fields('t', array('id', 'user_id', 'fid', 'first_name', 'last_name', 'category_id', 'email', 'phone', 'date', 'notes'))
+      ->execute();*/
     drupal_write_record('address_book', $get);
   }
+  //dsm($form_state, 'form_state');
 }
 
 /**
@@ -460,6 +489,7 @@ function address_book_bulk_delete_submit($form, &$form_state) {
 
 function address_book_page_view($id) {
   $output = array();
+
   if ($get = address_book_get_load(array('id' => $id))) {
     $get = reset($get);
     $file = file_load($get->fid);
@@ -474,6 +504,17 @@ function address_book_page_view($id) {
       '#notes' => $get->notes,
     );
   }
+
+  //---------------------------------???
+  $alias_path = array(
+    'source' => 'address-book/'.$id,
+    'alias' => 'address-book/'.mb_strtolower($get->first_name . '-' . $get->last_name),
+  );
+  path_save($alias_path);
+
+
+  dsm($alias_path, 'alias');
+
   drupal_set_breadcrumb(array(l(t('Home'), '<front>'), l(t('Address book'), 'address-book'), ($output['#full_name'])));
 
   return $output;
@@ -530,7 +571,11 @@ function address_book_get_load($get = array()) {
     $select->condition($field, $value);
   }
 
-  return $select->execute()->fetchAll();
+  return $select
+    ->extend('PagerDefault')
+    ->limit(10)
+    ->execute()
+    ->fetchAll();
 }
 
 /**
@@ -550,6 +595,7 @@ function address_book_selectbox_content($vid) {
       $output[$data->tid] = $data->name;
     }
   }
+
   return $output;
 }
 
@@ -619,5 +665,6 @@ function theme_page_view($variables) {
   if (!empty($variables['notes'])) {
     $output .= '<div>' . $variables['notes'] . '</div>';
   }
+
   return $output;
 }
